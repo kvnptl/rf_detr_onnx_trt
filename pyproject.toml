@@ -10,7 +10,8 @@ dependencies = [
     "pillow",
     "requests",
     "opencv-python>=4.8.0",
-    "tqdm"
+    "tqdm",
+    "supervision>=0.27.0"
 ]
 
 [project.optional-dependencies]
