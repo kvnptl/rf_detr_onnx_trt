@@ -163,16 +163,6 @@ Once you've converted your model to TensorRT, run inference:
 - `--threshold`: Confidence threshold for filtering detections (default: 0.5)
 - `--max_number_boxes`: Maximum number of boxes to return (default: 300)
 
-**Comparison:**
-
-| Feature | ONNX Runtime | TensorRT |
-|---------|--------------|----------|
-| **Command** | `uv run inference.py --model model.onnx ...` | `./run_trt_inference.sh --model model.trt ...` |
-| **Model Format** | `.onnx` | `.trt` |
-| **Speed** | Good | Faster (2-3x) |
-| **Portability** | Cross-platform | GPU-specific |
-| **Precision** | FP32 | FP16/FP32 |
-
 ## License
 
 This repository is licensed under the MIT License. See [license file](LICENSE) for more details.
