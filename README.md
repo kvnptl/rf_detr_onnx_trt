@@ -1,9 +1,9 @@
-# RF-DETR with ONNX
+# RF-DETR with ONNX and TensorRT
 
 [![Hugging Face](https://img.shields.io/badge/Hugging%20Face-Model-yellow)](https://huggingface.co/PierreMarieCurie/rf-detr-onnx/tree/main)
 
 
-This repository contains code to load an ONNX version of RF-DETR and perform inference, including drawing the results on images. It demonstrates how to convert a PyTorch model to ONNX format and inference with minimal dependencies.
+This repository contains code to load an ONNX version of RF-DETR and perform inference, including drawing the results on images. It demonstrates how to convert a PyTorch model to ONNX format and inference with minimal dependencies. And also how to convert the ONNX model to TensorRT for faster inference.
 
 RF-DETR is a transformer-based object detection and instance segmentation architecture developed by Roboflow. For more details on the model, please refer to the impressive work by the Roboflow team [here](https://github.com/roboflow/rf-detr/tree/main).
 
@@ -108,6 +108,70 @@ uv run inference.py -h
 ```
 Use the `--threshold` argument to specify the confidence threshold and the `--max_number_boxes` argument to limit the maximum number of bounding boxes. Also, add `--output` option to specify the output file name and extension if needed (default: output.jpg)
 </details>
+
+## TensorRT Deployment (Optional)
+
+For high-performance inference on NVIDIA GPUs, you can convert the ONNX model to TensorRT:
+
+### Requirements
+- TensorRT must be installed on your system (matching your CUDA version)
+- ONNX library will be automatically installed by the script
+
+### Convert ONNX to TensorRT
+
+**Easy method** (recommended):
+```bash
+./convert_to_trt.sh --onnx models/rf-detr-nano.onnx --engine models/rf-detr-nano.trt --fp16 --max-batch-size 8
+```
+
+**Manual method**:
+```bash
+uv sync --extra deploy-tools
+CUDA_MODULE_LOADING=LAZY PYTHONPATH=$(pwd)/.venv/lib/python3.12/site-packages:$PYTHONPATH \
+  python3 onnx_to_trt.py \
+  --onnx models/rf-detr-nano.onnx \
+  --engine models/rf-detr-nano.trt \
+  --fp16 \
+  --max-batch-size 8
+```
+
+**Arguments:**
+- `--onnx`: Path to your RF-DETR ONNX model
+- `--engine`: Output path for the TensorRT engine file
+- `--fp16`: (Optional) Enable FP16 precision for faster inference
+- `--max-batch-size`: (Optional) Maximum batch size for optimization (default: 32)
+
+**Notes:**
+- The script automatically detects the model's input resolution (384, 512, 576, or 560)
+- Handles both fixed and dynamic batch sizes automatically
+- TensorRT engines are GPU-specific and must be rebuilt for different GPUs
+- FP16 mode provides ~2x speedup on modern NVIDIA GPUs with Tensor Cores
+- For fixed batch models, the `--max-batch-size` parameter is ignored
+
+### Run Inference with TensorRT
+
+Once you've converted your model to TensorRT, run inference:
+
+```bash
+./run_trt_inference.sh --model models/rf-detr-nano.trt --image data/dog.jpeg --output output_trt.jpg
+```
+
+**Arguments:**
+- `--model`: Path to your TensorRT engine file (.trt)
+- `--image`: Path or URL to the input image
+- `--output`: Path to save the output image (default: output_trt.jpg)
+- `--threshold`: Confidence threshold for filtering detections (default: 0.5)
+- `--max_number_boxes`: Maximum number of boxes to return (default: 300)
+
+**Comparison:**
+
+| Feature | ONNX Runtime | TensorRT |
+|---------|--------------|----------|
+| **Command** | `uv run inference.py --model model.onnx ...` | `./run_trt_inference.sh --model model.trt ...` |
+| **Model Format** | `.onnx` | `.trt` |
+| **Speed** | Good | Faster (2-3x) |
+| **Portability** | Cross-platform | GPU-specific |
+| **Precision** | FP32 | FP16/FP32 |
 
 ## License
 
