@@ -14,7 +14,6 @@ import onnxruntime as ort
 import numpy as np
 import os
 from PIL import Image, ImageDraw, ImageFont, ImageOps
-import random
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.5
 DEFAULT_MAX_NUMBER_BOXES = 300
@@ -42,14 +41,119 @@ def box_cxcywh_to_xyxyn(x):
     ymax = cy + h / 2
     return np.stack([xmin, ymin, xmax, ymax], axis=-1)
 
+def generate_color_from_class_id(class_id):
+    """
+    Generate a consistent color for each class ID using a deterministic method.
+    Same class ID will always get the same color.
+    """
+    # Use class_id as seed for deterministic color generation
+    np.random.seed(class_id * 123)  # Multiply by prime to spread values
+    color_rgb = tuple(np.random.randint(50, 256, size=3).tolist())  # Avoid very dark colors
+    color_rgba = color_rgb + (100,)  # Add alpha for masks
+    np.random.seed(None)  # Reset seed to avoid affecting other random operations
+    return color_rgb, color_rgba
+
 class RFDETR_ONNX:
     MEANS = [0.485, 0.456, 0.406]
     STDS = [0.229, 0.224, 0.225]
+    
+    # COCO class names (using actual COCO category IDs with gaps, same as RF-DETR)
+    COCO_CLASSES = {
+        1: "person",
+        2: "bicycle",
+        3: "car",
+        4: "motorcycle",
+        5: "airplane",
+        6: "bus",
+        7: "train",
+        8: "truck",
+        9: "boat",
+        10: "traffic light",
+        11: "fire hydrant",
+        13: "stop sign",
+        14: "parking meter",
+        15: "bench",
+        16: "bird",
+        17: "cat",
+        18: "dog",
+        19: "horse",
+        20: "sheep",
+        21: "cow",
+        22: "elephant",
+        23: "bear",
+        24: "zebra",
+        25: "giraffe",
+        27: "backpack",
+        28: "umbrella",
+        31: "handbag",
+        32: "tie",
+        33: "suitcase",
+        34: "frisbee",
+        35: "skis",
+        36: "snowboard",
+        37: "sports ball",
+        38: "kite",
+        39: "baseball bat",
+        40: "baseball glove",
+        41: "skateboard",
+        42: "surfboard",
+        43: "tennis racket",
+        44: "bottle",
+        46: "wine glass",
+        47: "cup",
+        48: "fork",
+        49: "knife",
+        50: "spoon",
+        51: "bowl",
+        52: "banana",
+        53: "apple",
+        54: "sandwich",
+        55: "orange",
+        56: "broccoli",
+        57: "carrot",
+        58: "hot dog",
+        59: "pizza",
+        60: "donut",
+        61: "cake",
+        62: "chair",
+        63: "couch",
+        64: "potted plant",
+        65: "bed",
+        67: "dining table",
+        70: "toilet",
+        72: "tv",
+        73: "laptop",
+        74: "mouse",
+        75: "remote",
+        76: "keyboard",
+        77: "cell phone",
+        78: "microwave",
+        79: "oven",
+        80: "toaster",
+        81: "sink",
+        82: "refrigerator",
+        84: "book",
+        85: "clock",
+        86: "vase",
+        87: "scissors",
+        88: "teddy bear",
+        89: "hair drier",
+        90: "toothbrush",
+    }
 
-    def __init__(self, onnx_model_path):
+    def __init__(self, onnx_model_path, use_gpu=True):
         try:
+            # Set up execution providers (GPU first, then CPU fallback)
+            providers = []
+            if use_gpu:
+                providers.append('CUDAExecutionProvider')
+            providers.append('CPUExecutionProvider')
+            
             # Load the ONNX model and initialize the ONNX Runtime session
-            self.ort_session = ort.InferenceSession(onnx_model_path)
+            self.ort_session = ort.InferenceSession(onnx_model_path, providers=providers)
+            
+            # Print which provider is being used
+            print(f"Using execution provider: {self.ort_session.get_providers()[0]}")
 
             # Get input shape
             input_info = self.ort_session.get_inputs()[0]
@@ -147,27 +251,65 @@ class RFDETR_ONNX:
         # Post-process
         return self._post_process(outputs, origin_height, origin_width, confidence_threshold, max_number_boxes)
 
-    def save_detections(self, image_path, boxes, labels, masks, save_image_path):
-        """Draw bounding boxes, masks and class labels on the original image."""
+    def predict_from_image(self, image, confidence_threshold=DEFAULT_CONFIDENCE_THRESHOLD, max_number_boxes=DEFAULT_MAX_NUMBER_BOXES):
+        """
+        Run the model inference on a PIL Image object and return the raw outputs.
         
-        # Load base image
-        base = open_image(image_path).convert("RGBA")
-        result = base.copy()  # start with the base image
+        Args:
+            image: PIL Image object in RGB format
+            confidence_threshold: Confidence threshold for filtering detections
+            max_number_boxes: Maximum number of boxes to return
+            
+        Returns:
+            Tuple of (scores, labels, boxes, masks)
+        """
+        # Ensure image is in RGB mode
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        origin_width, origin_height = image.size
+        
+        # Preprocess the image
+        input_image = self._preprocess(image)
 
-        # Generate a color for each unique label (RGBA)
-        label_colors = {
-            label: (random.randint(0, 255),
-                    random.randint(0, 255),
-                    random.randint(0, 255),
-                    100)  # alpha for mask
-            for label in np.unique(labels)
-        }
+        # Get input name from the model
+        input_name = self.ort_session.get_inputs()[0].name
+
+        # Run the model
+        outputs = self.ort_session.run(None, {input_name: input_image})
+        
+        # Post-process
+        return self._post_process(outputs, origin_height, origin_width, confidence_threshold, max_number_boxes)
+
+    def draw_detections(self, image, boxes, labels, masks, scores):
+        """
+        Draw bounding boxes, masks and class labels on a PIL Image object.
+        
+        Args:
+            image: PIL Image object
+            boxes: Numpy array of bounding boxes
+            labels: Numpy array of class labels
+            masks: Numpy array of segmentation masks (or None)
+            scores: Numpy array of confidence scores
+            
+        Returns:
+            PIL Image with detections drawn
+        """
+        # Convert to RGBA for compositing
+        base = image.convert("RGBA")
+        result = base.copy()
+
+        # Generate consistent colors for each unique label based on class ID
+        label_colors = {}
+        for label in np.unique(labels):
+            color_rgb, color_rgba = generate_color_from_class_id(int(label))
+            label_colors[label] = {'rgb': color_rgb, 'rgba': color_rgba}
 
         # Loop over all masks
         if masks is not None:
             for i in range(masks.shape[0]):
                 label = labels[i]
-                color = label_colors[label]
+                color = label_colors[label]['rgba']
 
                 # --- Draw mask ---
                 mask_overlay = Image.fromarray(masks[i]).convert("L")
@@ -180,19 +322,59 @@ class RFDETR_ONNX:
         # Convert to RGB for drawing boxes and text
         result_rgb = result.convert("RGB")
         draw = ImageDraw.Draw(result_rgb)
-        font = ImageFont.load_default()
+        
+        # Try to load a better font, fallback to default if not available
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        except:
+            font = ImageFont.load_default()
 
         # Loop over boxes and draw
         for i, box in enumerate(boxes.astype(int)):
             label = labels[i]
-            # Use same color as mask but fully opaque for the outline
-            box_color = tuple(label_colors[label][:3])  # ignore alpha
+            score = scores[i]
+            
+            # Get class name from COCO dictionary
+            class_name = self.COCO_CLASSES.get(label, f"class_{label}")
+            
+            # Use consistent color for this class
+            box_color = label_colors[label]['rgb']
             draw.rectangle(box.tolist(), outline=box_color, width=4)
 
-            # Draw label text
-            text_x = box[0] + 5
-            text_y = box[1] + 5
-            draw.text((text_x, text_y), str(label), fill=box_color, font=font)
+            # Create label text with class name and confidence
+            label_text = f"{class_name}: {score:.2f}"
+            
+            # Get text bounding box for background
+            text_bbox = draw.textbbox((box[0], box[1]), label_text, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            
+            # Draw background rectangle for text
+            background_box = [box[0], box[1] - text_height - 8, box[0] + text_width + 10, box[1]]
+            draw.rectangle(background_box, fill=box_color)
+            
+            # Draw label text on top of background
+            draw.text((box[0] + 5, box[1] - text_height - 5), label_text, fill=(255, 255, 255), font=font)
 
+        return result_rgb
+
+    def save_detections(self, image_path, boxes, labels, masks, scores, save_image_path):
+        """
+        Draw bounding boxes, masks and class labels on the original image and save it.
+        
+        Args:
+            image_path: Path to input image
+            boxes: Numpy array of bounding boxes
+            labels: Numpy array of class labels
+            masks: Numpy array of segmentation masks (or None)
+            scores: Numpy array of confidence scores
+            save_image_path: Path to save output image
+        """
+        # Load base image
+        image = open_image(image_path).convert("RGB")
+        
+        # Draw detections
+        result = self.draw_detections(image, boxes, labels, masks, scores)
+        
         # Save
-        result_rgb.save(save_image_path)
+        result.save(save_image_path)
