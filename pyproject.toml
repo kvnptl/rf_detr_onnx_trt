@@ -6,9 +6,14 @@ readme = "README.MD"
 requires-python = ">=3.9"
 dependencies = [
     "numpy",
-    "onnxruntime>1.17",
-    "pillow"
+    "onnxruntime-gpu>=1.17",
+    "pillow",
+    "requests",
+    "opencv-python>=4.8.0",
+    "tqdm"
 ]
 
 [project.optional-dependencies]
 export-tools = ["rfdetr==1.3.0", "onnx==1.19.0", "onnxsim==0.4.36", "onnxscript", "torch==2.8.0"]
+deploy-tools = ["onnx==1.19.0"]
+trt-inference = ["torch>=2.0.0", "tensorrt-cu12>=10.0.0", "opencv-python>=4.8.0", "onnx==1.19.0"]

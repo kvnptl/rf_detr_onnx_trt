@@ -41,19 +41,24 @@ def parse_args():
         type=int,
         help=f"Maximum number of boxes to return (default: {DEFAULT_MAX_NUMBER_BOXES})"
     )
+    parser.add_argument(
+        "--cpu",
+        action="store_true",
+        help="Force CPU execution instead of GPU (default: use GPU if available)"
+    )
     return parser.parse_args()
 
 def main():
     args = parse_args()
 
     # Initialize the model
-    model = RFDETR_ONNX(args.model)
+    model = RFDETR_ONNX(args.model, use_gpu=not args.cpu)
 
     # Run inference and get detections
-    _, labels, boxes, masks = model.predict(args.image, args.threshold, args.max_number_boxes)
+    scores, labels, boxes, masks = model.predict(args.image, args.threshold, args.max_number_boxes)
 
     # Draw and save detections
-    model.save_detections(args.image, boxes, labels, masks, args.output)
+    model.save_detections(args.image, boxes, labels, masks, scores, args.output)
     print(f"Detections saved to: {args.output}")
 
 if __name__ == "__main__":
