@@ -23,17 +23,17 @@ uv run inference_video.py --model models/rf-detr-nano.onnx --video data/cars.mp4
 
 ### 3: ONNX to TensorRT Conversion
 ```bash
-./convert_to_trt.sh --onnx models/rf-detr-nano.onnx --engine models/rf-detr-nano-test.trt --fp16
+./convert_to_trt.sh --onnx models/rf-detr-nano.onnx --engine models/rf-detr-nano.trt --fp16
 ``` 
 
 ### 4: TRT Image Inference
 ```bash
-./run_trt_inference.sh --model models/rf-detr-nano-test.trt --image data/dog.jpeg --output test_trt_img.jpg
+./run_trt_inference.sh --model models/rf-detr-nano.trt --image data/dog.jpeg --output test_trt_img.jpg
 ```
 
 ### 5: TRT Video Inference
 ```bash
-./run_trt_video_inference.sh --model models/rf-detr-nano-test.trt --video data/cars.mp4 --output data/test_trt_video.mp4 --threshold 0.6
+./run_trt_video_inference.sh --model models/rf-detr-nano.trt --video data/cars.mp4 --output data/test_trt_video.mp4 --threshold 0.6
 ```
 
 **Note:** TensorRT's main advantage is single-image latency, not video throughput (which is I/O bound).

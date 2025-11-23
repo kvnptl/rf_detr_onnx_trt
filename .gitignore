@@ -2,9 +2,12 @@
 *.onnx
 *.pth
 *.pt
+*.trt
+
+# Data
+data/*
 
 # Others
 *.pyc
 *.lock
 *.ipynb
-*.sh
