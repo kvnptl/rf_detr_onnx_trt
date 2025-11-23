@@ -8,8 +8,9 @@ import cv2
 import numpy as np
 from pathlib import Path
 from PIL import Image
-from rfdetr_onnx import RFDETR_ONNX, DEFAULT_CONFIDENCE_THRESHOLD, DEFAULT_MAX_NUMBER_BOXES
+from rfdetr_onnx_tracking import RFDETR_ONNX, DEFAULT_CONFIDENCE_THRESHOLD, DEFAULT_MAX_NUMBER_BOXES
 from tqdm import tqdm
+import supervision as sv
 
 def get_video_rotation(video_path):
     """
@@ -62,7 +63,7 @@ def rotate_frame(frame, rotation):
 
 def process_video(model, video_path, output_path, threshold, max_number_boxes, skip_frames=0):
     """
-    Process video file and save output with detections.
+    Process video file with object tracking and save output with detections.
     
     Args:
         model: RFDETR_ONNX model instance
@@ -93,6 +94,15 @@ def process_video(model, video_path, output_path, threshold, max_number_boxes, s
         width, height = height, width
     
     print(f"Video info: {width}x{height} @ {fps}fps, {total_frames} frames")
+    
+    # Initialize ByteTrack tracker
+    tracker = sv.ByteTrack(
+        track_activation_threshold=threshold,
+        lost_track_buffer=30,
+        minimum_matching_threshold=0.8,
+        frame_rate=fps
+    )
+    print(f"Initialized ByteTrack tracker")
     
     # Create video writer
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -127,10 +137,14 @@ def process_video(model, video_path, output_path, threshold, max_number_boxes, s
                 pil_image, threshold, max_number_boxes
             )
             
-            # Draw detections on frame
-            frame_with_detections = model.draw_detections(
-                pil_image, boxes, labels, masks, scores
-            )
+            # Convert to supervision Detections format
+            detections = model.to_supervision_detections(scores, labels, boxes, masks)
+            
+            # Update tracker with detections
+            detections = tracker.update_with_detections(detections)
+            
+            # Draw tracked detections on frame
+            frame_with_detections = model.draw_tracked_detections(pil_image, detections)
             
             # Convert back to BGR for OpenCV
             frame_bgr = cv2.cvtColor(np.array(frame_with_detections), cv2.COLOR_RGB2BGR)
